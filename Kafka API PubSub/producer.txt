@@ -1,0 +1,139 @@
+import requests
+from kafka import KafkaProducer
+import json
+import time
+
+bootstrap_servers = 'kafka:9092'
+topic_name = 'NBA-API-Data'
+producer = KafkaProducer(bootstrap_servers=bootstrap_servers, value_serializer=lambda x: json.dumps(x).encode('utf-8'))
+
+# Define API URLs and Seasons
+base_url = 'https://www.balldontlie.io/api/v1'
+seasons = ['1996','1997', '1998', '2007', '2008', '2009', '2011', '2012', '2013']
+
+def get_players():
+    players_url = f'{base_url}/players'
+    page = 0
+    while True:
+        params = {
+            'page': page,
+            'per_page': 100  # Increase per_page to retrieve more players per API call
+        }
+        response = requests.get(players_url, params=params)
+        players_data = response.json()
+
+        # Break the loop if no more players
+        if not players_data['data']:
+            break
+
+        for player in players_data['data']:
+            player_id = player['id']
+            player_details = {
+                'id': player_id,
+                'first_name': player['first_name'],
+                'last_name': player['last_name']
+            }
+            for season in seasons:
+                yield player_details, season
+
+        # Increment the page number for the next iteration
+        print(f"Page {page} being processed...")
+        page += 1
+        
+    print(f"Pages {page} processed!")
+
+def get_season_stats(player_id, season):
+    url = f'{base_url}/season_averages?season={season}&player_ids[]={player_id}'
+    response = requests.get(url)
+    try:
+        season_stats = response.json()
+        if 'data' in season_stats and season_stats['data']:
+            return season_stats['data']
+    except json.JSONDecodeError:
+        pass
+    
+    return None
+
+for player_details, season in get_players():
+    player_id = player_details['id']
+    player_season_stats = get_season_stats(player_id, season)
+
+    if player_season_stats is not None:
+        player_data = {
+            'player_details': player_details,
+            'season_stats': player_season_stats
+        }
+        producer.send(topic_name, value=player_data)
+        time.sleep(3)
+
+producer.flush()
+producer.close()
+
+------------------------------------------------------------------------------------------------------------------------
+
+import requests
+from kafka import KafkaProducer
+import json
+import time
+
+bootstrap_servers = 'kafka:9092'
+topic_name = 'NBA-API-Data'
+producer = KafkaProducer(bootstrap_servers=bootstrap_servers, value_serializer=lambda x: json.dumps(x).encode('utf-8'))
+
+# Define API URLs and Seasons
+base_url = 'https://www.balldontlie.io/api/v1'
+seasons = ['1996', '1997', '1998', '2007', '2008', '2009', '2011', '2012', '2013']
+
+def get_players():
+    for player_id in range(3093):
+        for season in seasons:
+            player_details = {
+                'id': player_id,
+                'first_name': None,  # Placeholder for first name
+                'last_name': None  # Placeholder for last name
+            }
+            
+            player_url = f'{base_url}/players/{player_id}'
+            response = requests.get(player_url)
+            player_data = response.json()
+            
+            if 'first_name' in player_data:
+                player_details['first_name'] = player_data['first_name']
+            
+            if 'last_name' in player_data:
+                player_details['last_name'] = player_data['last_name']
+            
+            yield player_details, season
+
+def get_season_stats(player_id, season):
+    url = f'{base_url}/season_averages?season={season}&player_ids[]={player_id}'
+    response = requests.get(url)
+    try:
+        season_stats = response.json()
+        if 'data' in season_stats and season_stats['data']:
+            return season_stats['data']
+    except json.JSONDecodeError:
+        pass
+    
+    return None
+
+for player_details, season in get_players():
+    player_id = player_details['id']
+    player_season_stats = get_season_stats(player_id, season)
+
+    if player_season_stats is not None:
+        full_name = f"{player_details['first_name']} {player_details['last_name']}"
+
+        player_data = {
+            'id': player_id,
+            'full_name': full_name,
+            'season': season,
+            'season_stats': player_season_stats
+        }
+        producer.send(topic_name, value=player_data)
+        time.sleep(3)
+
+producer.flush()
+producer.close()
+
+print("Loop exited")
